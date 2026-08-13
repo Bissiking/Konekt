@@ -24,6 +24,7 @@ export interface KyrosConfig {
 
 export interface AppConfig {
   port: number;
+  publicBaseUrl: string;
   redirectUri: string;
   sessionSecret: string;
   kyros: KyrosConfig;
@@ -45,7 +46,27 @@ function oneOf<T extends string>(name: string, allowed: readonly T[]): T {
   return value as T;
 }
 
+export function normalizePublicBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('PUBLIC_BASE_URL doit être une URL absolue valide.');
+  }
+  const local = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) {
+    throw new Error('PUBLIC_BASE_URL doit utiliser HTTPS, sauf sur localhost.');
+  }
+  url.search = '';
+  url.hash = '';
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/`;
+  return url.toString().replace(/\/$/, '');
+}
+
 export function loadConfig(): AppConfig {
+  const port = Number(process.env.PORT || 3001);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('PORT est invalide.');
+  const publicBaseUrl = normalizePublicBaseUrl(process.env.PUBLIC_BASE_URL || `http://localhost:${port}`);
   const baseUrl = process.env.KYROS_BASE_URL || 'https://dev.api.mhemery.fr';
   const provider = required('AUTH_PROVIDER').toLowerCase();
   if (provider !== 'kyros') throw new Error('AUTH_PROVIDER doit valoir kyros.');
@@ -81,10 +102,11 @@ export function loadConfig(): AppConfig {
   };
 
   return {
-    port: Number(process.env.PORT || 3001),
+    port,
+    publicBaseUrl,
     redirectUri:
       process.env.KYROS_REDIRECT_URI ||
-      `http://localhost:${process.env.PORT || 3001}/auth/callback`,
+      `${publicBaseUrl}/auth/callback`,
     sessionSecret: required('SESSION_SECRET'),
     kyros,
   };

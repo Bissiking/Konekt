@@ -28,6 +28,8 @@ cp .env.example .env
 
 Renseigner ensuite au minimum `SESSION_SECRET`, `KYROS_CLIENT_ID` et `KYROS_CLIENT_SECRET` dans `.env`.
 
+En déploiement, `PUBLIC_BASE_URL` doit être l'origine publique exacte enregistrée dans Kyros. Konekt en déduit automatiquement le callback `<PUBLIC_BASE_URL>/auth/callback`.
+
 ```bash
 npm run dev
 ```
@@ -50,6 +52,7 @@ Les métadonnées `KYROS_SSO_VERSION`, `KYROS_EDITION` et `KYROS_APPLICATION_SCO
 
 | Variable | Rôle | Valeur par défaut |
 | --- | --- | --- |
+| `PUBLIC_BASE_URL` | URL publique canonique de Konekt | `http://localhost:<PORT>` |
 | `AUTH_PROVIDER` | Fournisseur d'identité, obligatoirement `kyros` | aucune |
 | `KYROS_SSO_VERSION` | Version du handshake, obligatoirement `4.4.0` | aucune |
 | `KYROS_EDITION` | Édition `standard` ou `enterprise` | aucune |
@@ -59,7 +62,7 @@ Les métadonnées `KYROS_SSO_VERSION`, `KYROS_EDITION` et `KYROS_APPLICATION_SCO
 | `KYROS_TOKEN_URL` | Échange et renouvellement des tokens | `<base>/token` |
 | `KYROS_USERINFO_URL` | Profil de secours si `/token` ne contient pas `user` | `<base>/userinfo` |
 | `KYROS_REVOKE_URL` | Révocation du refresh token | `<base>/revoke` |
-| `KYROS_REDIRECT_URI` | Callback exact déclaré dans Kyros | `http://localhost:3001/auth/callback` |
+| `KYROS_REDIRECT_URI` | Surcharge facultative du callback dérivé de `PUBLIC_BASE_URL` | aucune |
 | `KYROS_REQUESTED_SCOPE` | Scopes demandés | `profile email` |
 | `KYROS_REQUIRED_SCOPES` | Scopes obligatoires dans le JWT | aucune |
 | `KYROS_JWT_SECRET` | Vérification HS256 locale du token | aucune |

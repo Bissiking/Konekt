@@ -9,11 +9,13 @@ const {
   resolveUser,
   verifyAccessToken,
 } = require('../dist/kyros.js');
+const { normalizePublicBaseUrl } = require('../dist/config.js');
 
 const originalFetch = global.fetch;
 
 const config = {
   port: 3010,
+  publicBaseUrl: 'http://localhost:3010',
   redirectUri: 'http://localhost:3010/auth/callback',
   sessionSecret: 'test-session-secret',
   kyros: {
@@ -37,6 +39,13 @@ const config = {
     timeoutMs: 1000,
   },
 };
+
+test('normalise la base publique utilisée par le callback', () => {
+  const base = normalizePublicBaseUrl('https://aion-orbis.mhemery.fr/');
+  assert.equal(base, 'https://aion-orbis.mhemery.fr');
+  assert.equal(`${base}/auth/callback`, 'https://aion-orbis.mhemery.fr/auth/callback');
+  assert.throws(() => normalizePublicBaseUrl('http://module.example.fr'), /HTTPS/);
+});
 
 function jwt(overrides = {}) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
