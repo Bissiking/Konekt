@@ -1,115 +1,170 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Konekt</title>
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="icon" type="image/png" href="assets/Konekt.png">
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17212b">
+  <meta name="description" content="Le point de disponibilité partagé de votre équipe.">
+  <title>Konekt — Le point d’équipe</title>
+  <link rel="icon" type="image/png" href="assets/Konekt.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="/socket.io/socket.io.js" defer></script>
+  <script src="js/app.js" defer></script>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="logo">
-                <img src="assets/Konekt.png" width="50px" alt="Konekt">
-                Konekt
-            </div>
-            <div class="profile-section">
-                <div id="kyrosProfile" class="profile-info hidden">
-                    <div class="profile-avatar">
-                        <span id="profileInitials"></span>
-                    </div>
-                    <div class="profile-details">
-                        <h3 id="profileName"></h3>
-                        <p id="profileEmail"></p>
-                    </div>
-                </div>
-                <button id="kyrosAuthBtn" class="auth-btn login">
-                    <span class="auth-label">Connexion Kyros</span>
-                </button>
-            </div>
-        </header>        
+  <!--
+    THESIS: Konekt est le carnet de relève vivant de l'équipe, pas un dashboard de cartes interchangeables.
+    OWN-WORLD: Papier froid, encre dense, bleu registre, orange de passage et vert de présence; règles temporelles et onglets structurent l'espace.
+    SIGNATURE: La ligne du jour relie disponibilités, personnes et conversation comme une feuille de permanence partagée.
+    MOTION: La feuille du jour se déploie à l'ouverture; les panneaux mobiles glissent depuis leur bord d'origine.
+    RESPONSIVE: Planning prioritaire; présence et fil deviennent deux vues dédiées sous 760 px.
+  -->
+  <div class="noise" aria-hidden="true"></div>
 
-        <!-- Main Grid -->
-        <div class="main-grid">
-            <!-- Sidebar -->
-            <aside class="sidebar">
-                <div class="online-users">
-                    <h3>
-                        <span class="online-dot"></span>
-                        En ligne
-                    </h3>
-                    <ul id="onlineUsersList"></ul>
-                </div>
-            </aside>
+  <section class="login-screen" id="loginScreen" aria-labelledby="loginTitle">
+    <div class="login-brand">
+      <img src="assets/Konekt.png" alt="" width="56" height="56">
+      <span>Konekt</span>
+    </div>
+    <div class="login-copy">
+      <p class="login-date" id="loginDate"></p>
+      <h1 id="loginTitle">Le point d’équipe,<br><span>sans détour.</span></h1>
+      <p>Posez vos disponibilités, voyez qui est là et gardez les précisions au même endroit.</p>
+      <a class="button button-primary login-button" href="/auth/start">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 12h8m-3-3 3 3-3 3M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6"/></svg>
+        Continuer avec Kyros
+      </a>
+      <p class="login-security"><span></span> Connexion sécurisée par Kyros V4</p>
+      <div class="auth-error" id="authError" role="alert" hidden></div>
+    </div>
+    <div class="login-ledger" aria-hidden="true">
+      <div class="ledger-head"><span>Relève du jour</span><span id="ledgerDate"></span></div>
+      <div class="ledger-line"><time>09:00</time><i class="marker blue"></i><span>Point produit</span><b>3 personnes</b></div>
+      <div class="ledger-line"><time>11:30</time><i class="marker orange"></i><span>Créneau libre</span><b>2 personnes</b></div>
+      <div class="ledger-line"><time>14:00</time><i class="marker green"></i><span>Revue d’équipe</span><b>4 personnes</b></div>
+      <div class="ledger-stamp">En direct</div>
+    </div>
+  </section>
 
-            <!-- Main Content -->
-            <main class="main-content" id="app" style="display: none;">
-                <h1 class="main-title">Disponibilités</h1>
-
-                <!-- Add Availability Form -->
-                <section class="form-section">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="date">Date</label>
-                            <input id="date" type="date" class="form-input">
-                        </div>
-                        <div class="form-group">
-                            <label for="note">Note (optionnel)</label>
-                            <input id="note" type="text" placeholder="Ajouter une note..." class="form-input">
-                        </div>
-                    </div>
-                    <button onclick="addDispo()" class="btn btn-primary">Ajouter disponibilité</button>
-                </section>
-
-                <!-- Filters -->
-                <section class="filter-section">
-                    <h3 style="margin-bottom: 16px; font-weight: 600;">Filtres</h3>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="filterDate">Date</label>
-                            <input id="filterDate" type="date" onchange="applyFilters()" class="form-input">
-                        </div>
-                        <div class="form-group">
-                            <label for="filterUser">Utilisateur</label>
-                            <input id="filterUser" type="text" placeholder="Filtrer par pseudo" oninput="applyFilters()" class="form-input">
-                        </div>
-                    </div>
-                    <button onclick="resetFilters()" class="btn btn-secondary">Réinitialiser</button>
-                </section>
-
-                <!-- Disponibilities List -->
-                <section class="dispo-list" id="dispos">
-                    <!-- Les disponibilités seront ajoutées ici dynamiquement -->
-                </section>
-            </main>
+  <div class="app-shell" id="appShell" hidden>
+    <header class="topbar">
+      <a class="wordmark" href="/" aria-label="Konekt, accueil">
+        <img src="assets/Konekt.png" alt="" width="36" height="36">
+        <span>Konekt</span>
+      </a>
+      <div class="today-label"><span class="live-dot"></span><span id="todayLabel"></span></div>
+      <div class="topbar-actions">
+        <button class="icon-button mobile-only" id="presenceToggle" type="button" aria-label="Voir l’équipe en ligne" aria-controls="presencePanel">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span class="count-badge" id="presenceCountMobile">0</span>
+        </button>
+        <div class="profile" id="profile">
+          <span class="avatar" id="profileAvatar"></span>
+          <span class="profile-copy"><b id="profileName"></b><small id="profileContext"></small></span>
         </div>
+        <button class="icon-button" id="logoutButton" type="button" aria-label="Se déconnecter de Konekt">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5m5 5H3m12-8h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="presence-panel" id="presencePanel" aria-label="Équipe en ligne">
+        <div class="panel-heading">
+          <div><h2>En ligne</h2><p><span id="presenceCount">0</span> au poste</p></div>
+          <button class="icon-button panel-close mobile-only" data-close-panel type="button" aria-label="Fermer">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <ul class="presence-list" id="presenceList"></ul>
+        <div class="presence-foot"><span class="live-dot"></span> Mise à jour en temps réel</div>
+      </aside>
+
+      <main class="planning">
+        <div class="planning-head">
+          <div>
+            <h1>Disponibilités</h1>
+            <p id="planningSummary">Le registre partagé de l’équipe.</p>
+          </div>
+          <button class="button button-primary" id="addAvailability" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Ajouter mon créneau
+          </button>
+        </div>
+
+        <div class="filter-bar" aria-label="Filtrer les disponibilités">
+          <div class="segmented" id="rangeFilter">
+            <button type="button" data-range="today">Aujourd’hui</button>
+            <button type="button" data-range="week" aria-pressed="true">7 jours</button>
+            <button type="button" data-range="all">Tout</button>
+          </div>
+          <label class="search-field">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <span class="sr-only">Rechercher une personne ou une note</span>
+            <input id="searchInput" type="search" placeholder="Rechercher" autocomplete="off">
+          </label>
+        </div>
+
+        <div class="timeline" id="availabilityList" aria-live="polite" aria-busy="true"></div>
+      </main>
+
+      <aside class="chat-panel" id="chatPanel" aria-label="Fil d’équipe">
+        <div class="panel-heading chat-heading">
+          <div><h2>Fil d’équipe</h2><p>Les précisions qui comptent</p></div>
+          <button class="icon-button panel-close mobile-only" data-close-panel type="button" aria-label="Fermer">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="message-list" id="messageList" aria-live="polite"></div>
+        <form class="message-form" id="messageForm">
+          <label for="messageInput" class="sr-only">Votre message</label>
+          <textarea id="messageInput" rows="1" maxlength="1000" placeholder="Ajouter une précision…"></textarea>
+          <button class="send-button" type="submit" aria-label="Envoyer le message">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          </button>
+        </form>
+      </aside>
     </div>
 
-    <!-- Chat Toggle Button -->
-    <button class="chat-toggle" onclick="toggleChat()">💬</button>
+    <nav class="mobile-nav mobile-only" aria-label="Navigation principale">
+      <button type="button" data-mobile-view="planning" class="active">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg><span>Planning</span>
+      </button>
+      <button type="button" data-mobile-view="presence">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Équipe</span>
+      </button>
+      <button type="button" data-mobile-view="chat">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg><span>Fil</span>
+      </button>
+    </nav>
+  </div>
 
-    <!-- Chat Popup -->
-    <div id="chatPopup" class="chat-popup hidden">
-        <div class="chat-header">
-            <span>💬 Chat Global</span>
-            <button class="chat-close" onclick="toggleChat()">×</button>
-        </div>
-        <div id="messages" class="chat-messages">
-            <!-- Les messages seront ajoutés ici dynamiquement -->
-        </div>
-        <div class="chat-input-section">
-            <input id="msgInput" type="text" placeholder="Tapez votre message..." class="chat-input">
-            <button onclick="sendMessage()" class="chat-send">Envoyer</button>
-        </div>
-    </div>
+  <dialog class="editor-dialog" id="availabilityDialog">
+    <form method="dialog" id="availabilityForm">
+      <div class="dialog-head">
+        <div><h2 id="dialogTitle">Ajouter un créneau</h2><p>Quand l’équipe peut-elle compter sur vous ?</p></div>
+        <button class="icon-button" value="cancel" type="submit" formnovalidate aria-label="Fermer">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <input id="availabilityId" type="hidden">
+      <label class="field"><span>Date</span><input id="availabilityDate" type="date" required></label>
+      <label class="field"><span>Précision <small>facultative</small></span><textarea id="availabilityNote" rows="3" maxlength="240" placeholder="Ex. Disponible en visio après 14 h"></textarea><em><span id="noteCount">0</span>/240</em></label>
+      <div class="dialog-actions">
+        <button class="button button-secondary" value="cancel" type="submit" formnovalidate>Annuler</button>
+        <button class="button button-primary" id="saveAvailability" value="default" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
 
-    <!-- Scripts -->
-    <script src="js/toast.js"></script>
-    <script src="js/kyros.js"></script>
-    <script src="js/app.js"></script>
+  <dialog class="confirm-dialog" id="confirmDialog">
+    <form method="dialog">
+      <h2>Supprimer ce créneau ?</h2>
+      <p>Il disparaîtra immédiatement du registre de l’équipe.</p>
+      <div class="dialog-actions"><button class="button button-secondary" value="cancel">Conserver</button><button class="button button-danger" value="confirm">Supprimer</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
 </body>
 </html>

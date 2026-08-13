@@ -1,4 +1,6 @@
 db.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # Logs
 logs
@@ -49,6 +51,7 @@ web_modules/
 
 # TypeScript cache
 *.tsbuildinfo
+backend/dist/
 
 # Optional npm cache directory
 .npm
