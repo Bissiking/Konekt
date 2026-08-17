@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import session from 'express-session';
+import multer from 'multer';
 import { Server as SocketServer } from 'socket.io';
 import { loadConfig } from './config';
 import { KonektDatabase } from './database';
@@ -19,9 +21,26 @@ import { SQLiteSessionStore } from './session-store';
 const config = loadConfig();
 const projectRoot = path.resolve(__dirname, '../..');
 const frontendRoot = path.join(projectRoot, 'frontend');
+const uploadDir = path.join(projectRoot, 'uploads');
 const databasePath = process.env.DATABASE_PATH || path.join(projectRoot, 'db.sqlite');
 const database = new KonektDatabase(databasePath);
 const kyrosImageOrigin = new URL(config.kyros.baseUrl).origin;
+
+fs.mkdirSync(uploadDir, { recursive: true });
+const imageUpload = multer({
+  storage: multer.diskStorage({
+    destination: uploadDir,
+    filename: (_request, file, callback) => {
+      const ext = path.extname(file.originalname).toLowerCase().replace(/[^a-z0-9.]/g, '') || '.jpg';
+      callback(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (_request, file, callback) => {
+    if (file.mimetype.startsWith('image/')) callback(null, true);
+    else callback(new Error('Seules les images sont acceptées.'));
+  },
+});
 
 const app = express();
 const server = createServer(app);
@@ -56,6 +75,7 @@ app.use((_request, response, next) => {
 app.use(express.json({ limit: '32kb' }));
 app.use(sessionMiddleware);
 app.use('/fonts', express.static(path.join(projectRoot, 'node_modules/@fontsource-variable/archivo/files'), { maxAge: '1y', immutable: true }));
+app.use('/uploads', express.static(uploadDir, { maxAge: '1d' }));
 app.use(express.static(frontendRoot, { extensions: ['html'] }));
 
 function currentSession(request: Request): KonektSession {
@@ -96,6 +116,48 @@ function validDate(value: unknown): value is string {
 
 function cleanNote(value: unknown): string {
   return typeof value === 'string' ? value.trim().slice(0, 240) : '';
+}
+
+function cleanTitle(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, 120) : '';
+}
+
+function cleanText(value: unknown, max = 1200): string {
+  return typeof value === 'string' ? value.trim().slice(0, max) : '';
+}
+
+function cleanImageUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const url = value.trim().slice(0, 2000);
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+function daySlots(startDate: string, endDate: string): string[] {
+  const start = new Date(`${startDate}T12:00:00Z`);
+  const end = new Date(`${endDate}T12:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+  const labels: string[] = [];
+  const formatter = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const current = new Date(start);
+  while (current <= end) {
+    labels.push(formatter.format(current));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return labels;
+}
+
+function removeUploadedImage(imagePath: unknown): void {
+  if (typeof imagePath !== 'string' || !imagePath.startsWith('/uploads/')) return;
+  const file = path.join(uploadDir, path.basename(imagePath));
+  fs.rm(file, { force: true }, (error) => {
+    if (error) console.warn('[Events] Image introuvable à la suppression :', file);
+  });
 }
 
 function saveTokens(target: KonektSession, tokens: KyrosTokenResponse, user: KyrosUser): void {
@@ -219,6 +281,176 @@ app.delete('/api/availability/:id', requireUser, (request, response) => {
   if (outcome === 'forbidden') return void response.status(403).json({ error: 'Seul son auteur peut supprimer cette disponibilité.' });
   io.emit('availability:deleted', { id });
   response.status(204).end();
+});
+
+app.post('/api/uploads', requireUser, (request, response) => {
+  imageUpload.single('image')(request, response, (error: unknown) => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      response.status(400).json({ error: 'L’image dépasse 5 Mo.' });
+      return;
+    }
+    if (error) {
+      response.status(400).json({ error: error instanceof Error ? error.message : 'Image non acceptée.' });
+      return;
+    }
+    const file = (request as Request & { file?: Express.Multer.File }).file;
+    if (!file) {
+      response.status(400).json({ error: 'Choisis une image à téléverser.' });
+      return;
+    }
+    response.status(201).json({ url: `/uploads/${file.filename}` });
+  });
+});
+
+app.get('/api/events', requireUser, (request, response) => {
+  response.json(database.listEvents((response.locals.user as KyrosUser).id));
+});
+
+app.post('/api/events', requireUser, (request, response) => {
+  const startDate = typeof request.body.startDate === 'string' && validDate(request.body.startDate) ? request.body.startDate : '';
+  const endDate = typeof request.body.endDate === 'string' && validDate(request.body.endDate) ? request.body.endDate : '';
+  const title = cleanTitle(request.body.title);
+  if (!title) {
+    response.status(400).json({ error: 'Donne un titre à l’événement.' });
+    return;
+  }
+  if (!startDate || !endDate || startDate > endDate) {
+    response.status(400).json({ error: 'Choisis des dates de début et de fin valides.' });
+    return;
+  }
+  const rawSlots = Array.isArray(request.body.slots) ? request.body.slots as unknown[] : [];
+  const slots = rawSlots
+    .filter((slot): slot is string => typeof slot === 'string' && slot.trim().length > 0)
+    .map((slot) => slot.trim().slice(0, 80))
+    .slice(0, 30);
+  const imageUrl = cleanImageUrl(request.body.imageUrl);
+  const imagePath = typeof request.body.imagePath === 'string' && request.body.imagePath.startsWith('/uploads/')
+    ? request.body.imagePath.slice(0, 500)
+    : null;
+  const record = database.createEvent(response.locals.user as KyrosUser, {
+    title,
+    description: cleanText(request.body.description),
+    location: cleanText(request.body.location, 120),
+    imageUrl,
+    imagePath,
+    startDate,
+    endDate,
+    slots: slots.length ? slots : daySlots(startDate, endDate),
+  });
+  io.emit('event:created', record);
+  response.status(201).json(record);
+});
+
+app.get('/api/events/:id', requireUser, (request, response) => {
+  const id = Number(request.params.id);
+  const record = Number.isInteger(id) ? database.getEvent(id, (response.locals.user as KyrosUser).id) : undefined;
+  if (!record) {
+    response.status(404).json({ error: 'Cet événement n’existe plus.' });
+    return;
+  }
+  response.json(record);
+});
+
+app.patch('/api/events/:id', requireUser, (request, response) => {
+  const id = Number(request.params.id);
+  const startDate = typeof request.body.startDate === 'string' && validDate(request.body.startDate) ? request.body.startDate : '';
+  const endDate = typeof request.body.endDate === 'string' && validDate(request.body.endDate) ? request.body.endDate : '';
+  const title = cleanTitle(request.body.title);
+  if (!Number.isInteger(id) || !title || !startDate || !endDate || startDate > endDate) {
+    response.status(400).json({ error: 'L’événement est invalide.' });
+    return;
+  }
+  const previous = database.getEvent(id, (response.locals.user as KyrosUser).id);
+  if (!previous) {
+    response.status(404).json({ error: 'Cet événement n’existe plus.' });
+    return;
+  }
+  const imageUrl = cleanImageUrl(request.body.imageUrl);
+  const imagePath = typeof request.body.imagePath === 'string' && request.body.imagePath.startsWith('/uploads/')
+    ? request.body.imagePath.slice(0, 500)
+    : null;
+  if (imagePath && previous.imagePath && imagePath !== previous.imagePath) removeUploadedImage(previous.imagePath);
+  const record = database.updateEvent(id, (response.locals.user as KyrosUser).id, {
+    title,
+    description: cleanText(request.body.description),
+    location: cleanText(request.body.location, 120),
+    imageUrl,
+    imagePath,
+    startDate,
+    endDate,
+  });
+  if (record === undefined) {
+    response.status(404).json({ error: 'Cet événement n’existe plus.' });
+    return;
+  }
+  if (record === null) {
+    response.status(403).json({ error: 'Seul son auteur peut modifier cet événement.' });
+    return;
+  }
+  io.emit('event:updated', record);
+  response.json(record);
+});
+
+app.delete('/api/events/:id', requireUser, (request, response) => {
+  const id = Number(request.params.id);
+  const current = database.getEvent(id, (response.locals.user as KyrosUser).id);
+  const outcome = Number.isInteger(id) && current
+    ? database.deleteEvent(id, (response.locals.user as KyrosUser).id)
+    : 'missing';
+  if (outcome === 'missing') return void response.status(404).json({ error: 'Cet événement n’existe plus.' });
+  if (outcome === 'forbidden') return void response.status(403).json({ error: 'Seul son auteur peut supprimer cet événement.' });
+  if (current) removeUploadedImage(current.imagePath);
+  io.emit('event:deleted', { id });
+  response.status(204).end();
+});
+
+app.post('/api/events/:id/slots', requireUser, (request, response) => {
+  const id = Number(request.params.id);
+  const label = typeof request.body.label === 'string' ? request.body.label.trim().slice(0, 80) : '';
+  if (!Number.isInteger(id) || !label) {
+    response.status(400).json({ error: 'Le créneau est invalide.' });
+    return;
+  }
+  const record = database.addSlot(id, (response.locals.user as KyrosUser).id, label);
+  if (record === undefined) {
+    response.status(404).json({ error: 'Cet événement n’existe plus.' });
+    return;
+  }
+  if (record === null) {
+    response.status(403).json({ error: 'Seul son auteur peut ajouter un créneau.' });
+    return;
+  }
+  io.emit('event:updated', record);
+  response.status(201).json(record);
+});
+
+app.delete('/api/slots/:id', requireUser, (request, response) => {
+  const id = Number(request.params.id);
+  const slot = Number.isInteger(id) ? database.getSlot(id) : undefined;
+  if (!slot) return void response.status(404).json({ error: 'Ce créneau n’existe plus.' });
+  const outcome = database.deleteSlot(id, (response.locals.user as KyrosUser).id);
+  if (outcome === 'forbidden') return void response.status(403).json({ error: 'Seul son auteur peut supprimer un créneau.' });
+  const record = database.getEvent(slot.eventId, (response.locals.user as KyrosUser).id);
+  if (record) io.emit('event:updated', record);
+  response.status(204).end();
+});
+
+app.put('/api/events/:id/slots/:slotId/response', requireUser, (request, response) => {
+  const slotId = Number(request.params.slotId);
+  const eventId = Number(request.params.id);
+  const status = request.body.status === 'yes' || request.body.status === 'no' ? request.body.status : null;
+  const slot = Number.isInteger(slotId) && Number.isInteger(eventId) ? database.getSlot(slotId) : undefined;
+  if (!slot || slot.eventId !== eventId) {
+    response.status(404).json({ error: 'Ce créneau n’existe plus.' });
+    return;
+  }
+  const record = database.setResponse(response.locals.user as KyrosUser, slotId, status);
+  if (!record) {
+    response.status(404).json({ error: 'Cet événement n’existe plus.' });
+    return;
+  }
+  io.emit('event:updated', record);
+  response.json(record);
 });
 
 app.get('/api/messages', requireUser, (_request, response) => response.json(database.listMessages()));

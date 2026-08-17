@@ -53,6 +53,9 @@ web_modules/
 *.tsbuildinfo
 backend/dist/
 
+# Uploads locaux (images d'événements)
+uploads/
+
 # Optional npm cache directory
 .npm
 

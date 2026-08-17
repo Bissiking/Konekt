@@ -7,6 +7,7 @@ Konekt est le point de disponibilité partagé d'une équipe : créneaux, prése
 - SSO Kyros V4 avec contrôle de `state`, rotation du refresh token et révocation à la déconnexion
 - contexte entreprise Kyros compatible avec plusieurs memberships
 - disponibilités créées, modifiées et supprimées uniquement par leur auteur
+- événements d'équipe avec dates, notes, lieu, image (URL ou téléversée) et réponses de disponibilité par créneau
 - présence multi-onglets et fil d'équipe via Socket.IO
 - historique conservé dans SQLite
 - interface responsive, accessible au clavier et sans framework client

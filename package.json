@@ -1,6 +1,6 @@
 {
   "name": "konekt",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Konekt — disponibilités + chat en temps réel pour les équipes, SSO Kyros V4",
   "main": "backend/dist/server.js",
   "scripts": {
@@ -18,6 +18,7 @@
     "dotenv": "^16.6.0",
     "express": "^5.1.0",
     "express-session": "^1.18.1",
+    "multer": "^2.2.0",
     "socket.io": "^4.8.1"
   },
   "engines": {
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/express-session": "^1.18.1",
+    "@types/multer": "^2.2.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
